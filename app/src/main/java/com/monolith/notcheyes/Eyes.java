@@ -191,23 +191,40 @@ final class Eyes {
 
     /** Updates and draws the eyes centered in the given box. */
     void draw(Canvas c, float left, float top, float right, float bottom, int background) {
-        update();
         float w = right - left, h = bottom - top;
-        if (w <= 0 || h <= 0) return;
-
-        float R = Math.min(h * 0.31f, w / 8.2f) * (1f + 0.14f * pop.x); // outer radius
-        float stroke = R * 0.44f;
+        if (w <= 0 || h <= 0) {
+            update();
+            return;
+        }
+        float R = Math.min(h * 0.31f, w / 8.2f);
         float sep = R * 1.5f;
         float maxX = Math.max(0, Math.min(R * 1.5f, w / 2f - sep - R * 1.2f));
         float maxY = Math.max(0, Math.min(R * 0.7f, h / 2f - R * 1.15f));
+        drawAt(c, left + w / 2f, top + h / 2f, R, sep, maxX, maxY, background);
+    }
+
+    /**
+     * Updates and draws the eyes with explicit geometry.
+     * @param cx,cy center point between the eyes
+     * @param R     outer ring radius
+     * @param sep   distance from the center point to each eye's center
+     * @param maxX  how far the pair may shift sideways (gaze and sway)
+     * @param maxY  how far the pair may shift vertically (gaze)
+     */
+    void drawAt(Canvas c, float cx0, float cy0, float R, float sep, float maxX, float maxY, int background) {
+        update();
+        if (R <= 0) return;
+        R *= 1f + 0.14f * pop.x;
+        float stroke = R * 0.44f;
 
         double t = now() / 1000.0;
         float bob = expression == HAPPY ? (float) Math.sin(t * Math.PI * 2 * 1.3) * R * 0.1f : 0f;
         float sway = (expression == PLEASED || expression == SHY)
-                ? (float) Math.sin(t * Math.PI * 2 * 0.55) * R * 0.22f : 0f;
+                ? (float) Math.sin(t * Math.PI * 2 * 0.55) * Math.min(R * 0.22f, maxX * 0.6f) : 0f;
 
-        float cx = left + w / 2f + lookX.x * maxX + sway;
-        float cy = top + h / 2f + lookY.x * maxY + liftY.x * R + bob;
+        float dx = clamp(lookX.x * maxX + sway, -maxX, maxX);
+        float cx = cx0 + dx;
+        float cy = cy0 + lookY.x * maxY + liftY.x * R + bob;
 
         ring.setStrokeWidth(stroke);
         mask.setColor(background);

@@ -54,8 +54,8 @@ public class MainActivity extends Activity {
 
         panel.addView(label("Notch size"));
         panel.addView(slider("size", 50));
-        panel.addView(label("Distance from top"));
-        panel.addView(slider("offset", 25));
+        panel.addView(label("Move up / down"));
+        panel.addView(slider("offset", 50));
 
         toggle = new Button(this);
         toggle.setAllCaps(false);
