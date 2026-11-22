@@ -33,6 +33,19 @@
                 android:value="Floating animated notch overlay drawn over the home screen" />
         </service>
 
+        <service
+            android:name=".NotchAccessibilityService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/notch_accessibility" />
+        </service>
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">

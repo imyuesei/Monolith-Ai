@@ -24,6 +24,7 @@ public class MainActivity extends Activity {
 
     private SharedPreferences prefs;
     private Button toggle;
+    private Button tapFix;
     private LinearLayout panel;
     private boolean pendingStart;
 
@@ -73,6 +74,22 @@ public class MainActivity extends Activity {
             else startNotch();
         });
 
+        tapFix = new Button(this);
+        tapFix.setAllCaps(false);
+        tapFix.setTextColor(Color.WHITE);
+        tapFix.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        GradientDrawable tapBg = new GradientDrawable();
+        tapBg.setColor(Color.TRANSPARENT);
+        tapBg.setStroke(dp(1), 0x66FFFFFF);
+        tapBg.setCornerRadius(dp(28));
+        tapFix.setBackground(tapBg);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
+        tlp.topMargin = dp(10);
+        panel.addView(tapFix, tlp);
+        tapFix.setOnClickListener(v -> startActivity(
+                new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+
         root.addView(panel, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM));
@@ -99,6 +116,11 @@ public class MainActivity extends Activity {
     }
 
     private void startNotch() {
+        if (NotchAccessibilityService.isRunning()) {
+            prefs.edit().putBoolean("enabled", true).apply();
+            refresh();
+            return;
+        }
         if (!Settings.canDrawOverlays(this)) {
             pendingStart = true;
             startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -121,7 +143,12 @@ public class MainActivity extends Activity {
     }
 
     private void refresh() {
-        toggle.setText(prefs.getBoolean("enabled", false) ? "Hide notch" : "Show notch on home screen");
+        boolean on = prefs.getBoolean("enabled", false);
+        toggle.setText(on ? "Hide notch" : "Show notch on home screen");
+        boolean acc = NotchAccessibilityService.isRunning();
+        tapFix.setText(acc ? "✓ Tapping enabled (Accessibility on)"
+                : "Make the notch tappable → Accessibility → Notch Eyes");
+        tapFix.setAlpha(acc ? 0.5f : 1f);
     }
 
     private TextView label(String s) {
@@ -141,7 +168,8 @@ public class MainActivity extends Activity {
             @Override
             public void onProgressChanged(SeekBar sb, int value, boolean fromUser) {
                 prefs.edit().putInt(key, value).apply();
-                if (prefs.getBoolean("enabled", false) && Settings.canDrawOverlays(MainActivity.this)) {
+                if (prefs.getBoolean("enabled", false) && !NotchAccessibilityService.isRunning()
+                        && Settings.canDrawOverlays(MainActivity.this)) {
                     startForegroundService(new Intent(MainActivity.this, NotchService.class));
                 }
             }

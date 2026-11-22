@@ -11,33 +11,40 @@ import android.view.View;
 import java.util.Random;
 
 /**
- * Two glowing ring eyes on black that look around, blink, and smile.
- * Used full-screen in the app and tiny inside the floating notch.
+ * Thick white ring eyes on black. Each eye is a ring with a wedge cut out;
+ * the wedge spins and opens to form expressions:
+ *   IDLE   O O    full rings that look around
+ *   HAPPY  ∩ ∩    gap at the bottom, bobbing
+ *   PLEASED ◡ ◡   gaps facing up and inward, swaying
+ *   SHY    ◟ ◞    gaps facing up and outward, eyes dropped
+ *   SAD    ∪ ∪    gap at the top
+ * Blinks squash the eyes until they vanish for a moment.
  */
 public class EyesView extends View {
 
-    private static final int CORE = 0xFFFFFFFF;
-    private static final int GLOW = 0xFFBFE6FF;
+    public static final int IDLE = 0, HAPPY = 1, PLEASED = 2, SHY = 3, SAD = 4;
 
     private final Paint core = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF oval = new RectF();
     private final Random rnd = new Random();
-
     private final boolean interactive;
 
-    // gaze, -1..1
+    // per eye (0 = left, 1 = right): gap center angle and gap size in degrees
+    private final float[] gapC = {90, 90}, gapS = {0, 0};
+    private final float[] tgtC = {90, 90}, tgtS = {0, 0};
+
+    private int expression = IDLE;
+    private long expressionUntil;
+
     private float lookX, lookY, targetX, targetY;
-    // eye openness, 0..1
+    private float dropY, tgtDropY; // in eye radii
+    private float pop;             // surprise scale bump
+    private long popUntil;
+
     private float open = 1f;
     private long blinkStart = -1;
     private int blinksLeft;
-    // smile amount, 0..1
-    private float happy;
-    private long happyUntil;
-    // wide "surprised" amount, 0..1
-    private float wide;
-    private long wideUntil;
 
     private long nextSaccade, nextBlink, lastFrame, downTime;
     private boolean following;
@@ -46,36 +53,64 @@ public class EyesView extends View {
         super(context);
         this.interactive = interactive;
         core.setStyle(Paint.Style.STROKE);
-        core.setStrokeCap(Paint.Cap.ROUND);
-        core.setColor(CORE);
+        core.setStrokeCap(Paint.Cap.BUTT);
+        core.setColor(0xFFFFFFFF);
         glow.setStyle(Paint.Style.STROKE);
-        glow.setStrokeCap(Paint.Cap.ROUND);
-        glow.setColor(GLOW);
+        glow.setStrokeCap(Paint.Cap.BUTT);
+        glow.setColor(0xFFDDF4FF);
         long now = SystemClock.uptimeMillis();
         nextSaccade = now + 600;
-        nextBlink = now + 1500;
+        nextBlink = now + 1800;
+        expressionUntil = now + 2500;
     }
 
-    /** Smile for a moment (eyes become ^ ^). */
-    public void celebrate() {
-        happyUntil = SystemClock.uptimeMillis() + 1600;
+    /** Show an expression for a while, then go back to idle. */
+    public void setExpression(int e, long durationMs) {
+        long now = SystemClock.uptimeMillis();
+        boolean fromClosed = gapS[0] < 20f;
+        expression = e;
+        expressionUntil = now + durationMs;
+        float c, s, drop;
+        switch (e) {
+            case HAPPY:   c = 90;  s = 150; drop = -0.15f; break;
+            case PLEASED: c = 310; s = 105; drop = 0f;     break;
+            case SHY:     c = 230; s = 110; drop = 0.3f;   break;
+            case SAD:     c = 270; s = 150; drop = 0.25f;  break;
+            default:      c = tgtC[0]; s = 0; drop = 0f;   break;
+        }
+        tgtC[0] = c;
+        tgtC[1] = mirror(c);
+        tgtS[0] = tgtS[1] = s;
+        tgtDropY = drop;
+        if (e != IDLE) {
+            targetX = 0;
+            targetY = 0;
+            if (fromClosed) {
+                // start the gap half a turn away so it spins into place
+                gapC[0] = c - 180f;
+                gapC[1] = mirror(c) + 180f;
+            }
+        }
         invalidate();
     }
 
-    /** Pop the eyes open wide for a moment. */
+    public void celebrate() {
+        setExpression(HAPPY, 2200);
+    }
+
     public void surprise() {
-        wideUntil = SystemClock.uptimeMillis() + 900;
+        setExpression(IDLE, 1500);
+        popUntil = SystemClock.uptimeMillis() + 600;
         targetX = 0;
         targetY = 0;
         nextSaccade = SystemClock.uptimeMillis() + 1200;
-        invalidate();
     }
 
-    /** Glance in a direction for a moment. */
-    public void glance(float x, float y) {
-        targetX = clamp(x, -1, 1);
-        targetY = clamp(y, -1, 1);
-        nextSaccade = SystemClock.uptimeMillis() + 1400;
+    public void blinkNow() {
+        if (blinkStart < 0) {
+            blinkStart = SystemClock.uptimeMillis();
+            blinksLeft = 1;
+        }
     }
 
     @Override
@@ -88,12 +123,17 @@ public class EyesView extends View {
                 // fall through
             case MotionEvent.ACTION_MOVE:
                 following = true;
+                if (expression != IDLE) setExpression(IDLE, 1500);
                 targetX = clamp((e.getX() - w / 2f) / (w / 2f), -1, 1);
                 targetY = clamp((e.getY() - h / 2f) / (h / 2f), -1, 1);
                 return true;
             case MotionEvent.ACTION_UP:
                 following = false;
-                if (SystemClock.uptimeMillis() - downTime < 250) celebrate();
+                if (SystemClock.uptimeMillis() - downTime < 250) {
+                    int[] moods = {HAPPY, PLEASED, SHY};
+                    setExpression(moods[rnd.nextInt(moods.length)], 2500);
+                    blinkNow();
+                }
                 nextSaccade = SystemClock.uptimeMillis() + 1500;
                 return true;
             case MotionEvent.ACTION_CANCEL:
@@ -104,46 +144,62 @@ public class EyesView extends View {
     }
 
     private void update(long now, float dt) {
-        // random saccades
-        if (!following && now >= nextSaccade) {
-            float roll = rnd.nextFloat();
-            if (roll < 0.3f) {
+        // expression timeline
+        if (!following && now >= expressionUntil) {
+            if (expression != IDLE) {
+                blinkNow();
+                setExpression(IDLE, 2000 + rnd.nextInt(2500));
+            } else {
+                float r = rnd.nextFloat();
+                int e = r < 0.4f ? HAPPY : r < 0.65f ? PLEASED : r < 0.9f ? SHY : SAD;
+                blinkNow();
+                setExpression(e, 2500 + rnd.nextInt(1800));
+            }
+        }
+
+        // gaze wanders only while idle
+        if (expression == IDLE && !following && now >= nextSaccade) {
+            if (rnd.nextFloat() < 0.35f) {
                 targetX = 0;
                 targetY = 0;
             } else {
                 targetX = rnd.nextFloat() * 2f - 1f;
                 targetY = (rnd.nextFloat() * 2f - 1f) * 0.7f;
             }
-            if (roll > 0.93f) happyUntil = now + 1300;
-            else if (roll > 0.88f) wideUntil = now + 700;
-            nextSaccade = now + 700 + rnd.nextInt(2600);
+            nextSaccade = now + 600 + rnd.nextInt(2000);
         }
+
         float k = 1f - (float) Math.exp(-dt * 14f);
         lookX += (targetX - lookX) * k;
         lookY += (targetY - lookY) * k;
 
-        float hk = 1f - (float) Math.exp(-dt * 10f);
-        happy += ((now < happyUntil ? 1f : 0f) - happy) * hk;
-        wide += ((now < wideUntil ? 1f : 0f) - wide) * hk;
+        float ka = 1f - (float) Math.exp(-dt * 9f);
+        for (int i = 0; i < 2; i++) {
+            gapC[i] += angleDiff(gapC[i], tgtC[i]) * ka;
+            gapS[i] += (tgtS[i] - gapS[i]) * ka;
+        }
+        dropY += (tgtDropY - dropY) * ka;
+        pop += ((now < popUntil ? 1f : 0f) - pop) * (1f - (float) Math.exp(-dt * 16f));
 
-        // blinking (single or double)
-        if (blinkStart < 0 && now >= nextBlink && happy < 0.1f) {
+        // blinking
+        if (blinkStart < 0 && now >= nextBlink) {
             blinkStart = now;
-            blinksLeft = rnd.nextFloat() < 0.22f ? 2 : 1;
+            blinksLeft = rnd.nextFloat() < 0.25f ? 2 : 1;
         }
         open = 1f;
         if (blinkStart >= 0 && now >= blinkStart) {
-            float t = (now - blinkStart) / 200f;
-            if (t < 0.4f) open = 1f - t / 0.4f;
-            else open = Math.min(1f, (t - 0.4f) / 0.6f);
+            float t = (now - blinkStart) / 230f;
+            if (t < 0.35f) open = 1f - t / 0.35f;
+            else if (t < 0.5f) open = 0f;
+            else open = Math.min(1f, (t - 0.5f) / 0.5f);
             if (t >= 1f) {
                 open = 1f;
                 blinksLeft--;
                 if (blinksLeft > 0) {
-                    blinkStart = now + 70;
+                    blinkStart = now + 80;
                 } else {
                     blinkStart = -1;
-                    nextBlink = now + 1800 + rnd.nextInt(4200);
+                    nextBlink = now + 2200 + rnd.nextInt(3500);
                 }
             }
         }
@@ -157,45 +213,60 @@ public class EyesView extends View {
         update(now, dt);
 
         float w = getWidth(), h = getHeight();
-        if (w <= 0 || h <= 0) return;
+        if (w > 0 && h > 0) {
+            float r = Math.min(h * 0.27f, w / 9f) * (1f + 0.15f * pop);
+            float stroke = r * 0.55f;
+            float outer = r + stroke / 2f;
+            float sep = outer * 1.55f;
+            float maxX = Math.max(0, Math.min(r * 1.4f, w / 2f - sep - outer - stroke));
+            float maxY = Math.max(0, Math.min(r * 0.9f, h / 2f - outer - stroke * 0.5f));
 
-        float breathe = 1f + 0.025f * (float) Math.sin(now / 650.0);
-        float r = Math.min(h * 0.28f, w * 0.115f) * breathe * (1f + 0.18f * wide);
-        float stroke = r * 0.30f;
-        float sep = r * 1.75f;
-        float maxX = Math.max(0, Math.min(r * 1.3f, w / 2f - sep - r - stroke * 2));
-        float maxY = Math.max(0, Math.min(r * 0.8f, h / 2f - r - stroke * 2));
+            double t = now / 1000.0;
+            float bob = 0, sway = 0;
+            if (expression == HAPPY) bob = (float) Math.sin(t * Math.PI * 2 * 1.4) * r * 0.14f;
+            if (expression == PLEASED || expression == SHY) {
+                sway = (float) Math.sin(t * Math.PI * 2 * 0.6) * r * 0.25f;
+            }
 
-        float cx = w / 2f + lookX * maxX;
-        float cy = h / 2f + lookY * maxY - happy * r * 0.25f;
+            float cx = w / 2f + lookX * maxX + sway;
+            float cy = h / 2f + lookY * maxY + dropY * r + bob;
 
-        for (int side = -1; side <= 1; side += 2) {
-            // the eye on the side we are looking toward turns away and narrows
-            float turn = Math.max(0, side * lookX);
-            float sx = 1f - 0.3f * turn;
-            float ex = cx + side * sep * (1f - 0.12f * Math.abs(lookX));
-            float rx = r * sx;
-            float ry = r * Math.max(0.07f, open);
-            drawEye(c, ex, cy, rx, ry, stroke);
+            if (open > 0.04f) {
+                for (int i = 0; i < 2; i++) {
+                    float ex = cx + (i == 0 ? -sep : sep);
+                    drawEye(c, ex, cy, r, r * open, stroke, i);
+                }
+            }
         }
-
         if (isAttachedToWindow() && getVisibility() == VISIBLE) postInvalidateOnAnimation();
     }
 
-    private void drawEye(Canvas c, float x, float y, float rx, float ry, float stroke) {
+    private void drawEye(Canvas c, float x, float y, float rx, float ry, float stroke, int i) {
         oval.set(x - rx, y - ry, x + rx, y + ry);
-        // 360 = full ring, 160 = smiling arc on top ( ^ )
-        float sweep = 360f - happy * 200f;
-        float start = 270f - sweep / 2f;
-
-        // soft glow passes
-        for (int i = 3; i >= 1; i--) {
-            glow.setStrokeWidth(stroke * (1f + i * 1.1f));
-            glow.setAlpha(i == 3 ? 18 : i == 2 ? 34 : 60);
-            c.drawArc(oval, start, sweep, false, glow);
-        }
+        float gs = gapS[i];
+        glow.setStrokeWidth(stroke * 1.5f);
+        glow.setAlpha(28);
         core.setStrokeWidth(stroke);
-        c.drawArc(oval, start, sweep, false, core);
+        if (gs < 1f) {
+            c.drawOval(oval, glow);
+            c.drawOval(oval, core);
+        } else {
+            float sweep = 360f - gs;
+            float start = gapC[i] + gs / 2f;
+            c.drawArc(oval, start, sweep, false, glow);
+            c.drawArc(oval, start, sweep, false, core);
+        }
+    }
+
+    private static float mirror(float a) {
+        return 180f - a;
+    }
+
+    private static float angleDiff(float from, float to) {
+        float d = (to - from) % 360f;
+        if (d > 180f) d -= 360f;
+        if (d < -180f) d += 360f;
+        return d;
     }
 
     private static float clamp(float v, float lo, float hi) {
