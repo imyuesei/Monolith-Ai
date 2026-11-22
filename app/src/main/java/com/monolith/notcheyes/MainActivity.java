@@ -2,6 +2,7 @@ package com.monolith.notcheyes;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -24,9 +25,9 @@ public class MainActivity extends Activity {
 
     private SharedPreferences prefs;
     private Button toggle;
-    private Button tapFix;
     private LinearLayout panel;
     private boolean pendingStart;
+    private boolean askedAccessibility;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,8 +55,8 @@ public class MainActivity extends Activity {
 
         panel.addView(label("Notch size"));
         panel.addView(slider("size", 50));
-        panel.addView(label("Move up / down"));
-        panel.addView(slider("offset", 50));
+        panel.addView(label("Distance from top"));
+        panel.addView(slider("offset", 25));
 
         toggle = new Button(this);
         toggle.setAllCaps(false);
@@ -73,22 +74,6 @@ public class MainActivity extends Activity {
             if (prefs.getBoolean("enabled", false)) stopNotch();
             else startNotch();
         });
-
-        tapFix = new Button(this);
-        tapFix.setAllCaps(false);
-        tapFix.setTextColor(Color.WHITE);
-        tapFix.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        GradientDrawable tapBg = new GradientDrawable();
-        tapBg.setColor(Color.TRANSPARENT);
-        tapBg.setStroke(dp(1), 0x66FFFFFF);
-        tapBg.setCornerRadius(dp(28));
-        tapFix.setBackground(tapBg);
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
-        tlp.topMargin = dp(10);
-        panel.addView(tapFix, tlp);
-        tapFix.setOnClickListener(v -> startActivity(
-                new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
 
         root.addView(panel, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -116,9 +101,25 @@ public class MainActivity extends Activity {
     }
 
     private void startNotch() {
+        // the accessibility layer sits above the status bar, which is what makes the notch tappable
         if (NotchAccessibilityService.isRunning()) {
             prefs.edit().putBoolean("enabled", true).apply();
             refresh();
+            return;
+        }
+        if (!askedAccessibility) {
+            askedAccessibility = true;
+            new AlertDialog.Builder(this)
+                    .setTitle("Make the notch tappable")
+                    .setMessage("Android's status bar blocks taps at the top of the screen. "
+                            + "Turn on Notch Eyes in Accessibility so you can tap the notch.\n\n"
+                            + "If it says \"Restricted setting\": App info → ⋮ → Allow restricted settings.")
+                    .setPositiveButton("Open settings", (d, w) -> {
+                        prefs.edit().putBoolean("enabled", true).apply();
+                        startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                    })
+                    .setNegativeButton("Not now", (d, w) -> startNotch())
+                    .show();
             return;
         }
         if (!Settings.canDrawOverlays(this)) {
@@ -143,12 +144,7 @@ public class MainActivity extends Activity {
     }
 
     private void refresh() {
-        boolean on = prefs.getBoolean("enabled", false);
-        toggle.setText(on ? "Hide notch" : "Show notch on home screen");
-        boolean acc = NotchAccessibilityService.isRunning();
-        tapFix.setText(acc ? "✓ Tapping enabled (Accessibility on)"
-                : "Make the notch tappable → Accessibility → Notch Eyes");
-        tapFix.setAlpha(acc ? 0.5f : 1f);
+        toggle.setText(prefs.getBoolean("enabled", false) ? "Hide notch" : "Show notch on home screen");
     }
 
     private TextView label(String s) {
